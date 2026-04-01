@@ -39,31 +39,54 @@ def go(page, **kwargs):
 
 def page_home():
     st.title("Skill Model Experiments")
-    st.caption("Click an experiment name to drill into its evaluation results.")
+    st.caption("Click a row to drill into its evaluation results.")
 
     experiments = load_experiments()
 
-    header_cols = ["Experiment", "TP", "FP", "FN", "Total", "Precision", "Recall", "F1", "F0.5", "F0.3"]
-    col_widths = [3, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-    header = st.columns(col_widths)
-    for col, label in zip(header, header_cols):
-        col.markdown(f"**{label}**")
-    st.divider()
-
+    rows = []
     for _, row in experiments.iterrows():
-        inf = load_inf_eval(row["experiment_name"])
+        inf   = load_inf_eval(row["experiment_name"])
         tp    = int((inf["label"] == "TP").sum())
         fp    = int((inf["label"] == "FP").sum())
         fn    = int((inf["label"] == "FN").sum())
         total = tp + fp + fn
+        rows.append({
+            "experiment_name": row["experiment_name"],
+            "TP": tp, "FP": fp, "FN": fn, "Total": total,
+            "Precision": row["Precision"], "Recall": row["Recall"],
+            "F1": row["F1"], "F0.5": row["F0.5"], "F0.3": row["F0.3"],
+        })
+    display_df = pd.DataFrame(rows)
 
-        cols = st.columns(col_widths)
-        if cols[0].button(row["experiment_name"], key=f"exp_{row['experiment_name']}"):
-            go("job_list", selected_experiment=row["experiment_name"])
-        for col, val in zip(cols[1:5], [tp, fp, fn, total]):
-            col.write(val)
-        for col, metric in zip(cols[5:], ["Precision", "Recall", "F1", "F0.5", "F0.3"]):
-            col.write(f"{row[metric]:.3f}")
+    metrics = ["Precision", "Recall", "F1", "F0.5", "F0.3"]
+
+    def percentile_color(series):
+        ranks = series.rank(pct=True)
+        colors = []
+        for r in ranks:
+            red   = int(231 + (46  - 231) * r)
+            green = int(76  + (204 - 76)  * r)
+            blue  = int(60  + (113 - 60)  * r)
+            colors.append(f"background-color: rgb({red},{green},{blue}); color: #111")
+        return colors
+
+    styled = display_df.style.apply(
+        lambda col: percentile_color(col) if col.name in metrics else [""] * len(col),
+        axis=0,
+    ).format({m: "{:.3f}" for m in metrics})
+
+    event = st.dataframe(
+        styled,
+        width="stretch",
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+    )
+
+    selected_rows = event.selection.rows
+    if selected_rows:
+        exp_name = display_df.iloc[selected_rows[0]]["experiment_name"]
+        go("job_list", selected_experiment=exp_name)
 
 
 def page_job_list():
