@@ -1,0 +1,12 @@
+services:
+  app:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "8501:8501"
+    command: >
+      sh -c "pip install -r requirements.txt -q &&
+             streamlit run app.py --server.port=8501 --server.address=0.0.0.0"
+
