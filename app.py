@@ -35,11 +35,52 @@ def go(page, **kwargs):
     st.rerun()
 
 
+def get_clicked_row_if_allowed(event, columns, allowed_columns):
+    """Return clicked row index only when click is in an allowed column."""
+    if not event.selection.cells:
+        return None
+
+    cell = event.selection.cells[0]
+
+    if isinstance(cell, dict):
+        row_idx = cell.get("row")
+        col_ref = cell.get("column")
+    elif isinstance(cell, (tuple, list)) and len(cell) >= 2:
+        row_idx, col_ref = cell[0], cell[1]
+    else:
+        # Handle SelectionCell objects that expose attributes.
+        row_idx = getattr(cell, "row", None)
+        col_ref = getattr(cell, "column", None)
+
+    if row_idx is None or col_ref is None:
+        return None
+
+    if isinstance(col_ref, int):
+        if col_ref < 0 or col_ref >= len(columns):
+            return None
+        col_name = columns[col_ref]
+    else:
+        col_text = str(col_ref).strip()
+        if col_text.isdigit():
+            col_idx = int(col_text)
+            if col_idx < 0 or col_idx >= len(columns):
+                return None
+            col_name = columns[col_idx]
+        else:
+            # Header text can contain sort arrows (e.g., "↑ experiment_name").
+            col_name = col_text.lstrip("↑↓ ")
+
+    if col_name not in allowed_columns:
+        return None
+
+    return int(row_idx)
+
+
 # ── Pages ─────────────────────────────────────────────────────────────────────
 
 def page_home():
     st.title("Skill Model Experiments")
-    st.caption("Click a row to drill into its evaluation results.")
+    st.caption("Click an experiment name to drill into its evaluation results.")
 
     experiments = load_experiments()
 
@@ -80,12 +121,17 @@ def page_home():
         width="stretch",
         hide_index=True,
         on_select="rerun",
-        selection_mode="single-row",
+        selection_mode="single-cell",
     )
 
-    selected_rows = event.selection.rows
-    if selected_rows:
-        exp_name = display_df.iloc[selected_rows[0]]["experiment_name"]
+    selected_row = get_clicked_row_if_allowed(
+        event,
+        list(display_df.columns),
+        {"experiment_name"},
+    )
+
+    if selected_row is not None:
+        exp_name = display_df.iloc[selected_row]["experiment_name"]
         go("job_list", selected_experiment=exp_name)
 
 
@@ -95,7 +141,7 @@ def page_job_list():
         go("home")
 
     st.title(f"{exp} — Job Summary")
-    st.caption("Aggregated P/R/F1/F0.5 per job. Click a row to see individual inferences.")
+    st.caption("Aggregated P/R/F1/F0.5 per job. Click job code or title to see individual inferences.")
 
     inf_eval = load_inf_eval(exp)
 
@@ -139,24 +185,29 @@ def page_job_list():
         axis=0,
     ).format({m: "{:.3f}" for m in metrics})
 
-    # on_select="rerun" triggers a rerun when a row is clicked;
-    # selection_mode="single-row" returns exactly one row index in event.selection.rows
+    # on_select="rerun" triggers a rerun when a cell is clicked.
+    # Drill down only if the clicked cell is in job_code or job_title.
     event = st.dataframe(
         styled,
         width="stretch",
         hide_index=True,
         on_select="rerun",
-        selection_mode="single-row",
+        selection_mode="single-cell",
     )
 
-    selected_rows = event.selection.rows
-    if selected_rows:
-        job_code = display_df.iloc[selected_rows[0]]["job_code"]
+    selected_row = get_clicked_row_if_allowed(
+        event,
+        list(display_df.columns),
+        {"job_code", "job_title"},
+    )
+
+    if selected_row is not None:
+        job_code = display_df.iloc[selected_row]["job_code"]
         go("job_detail", selected_job_code=job_code)
 
 
 def page_job_detail():
-    exp      = st.session_state.selected_experiment
+    exp = st.session_state.selected_experiment
     job_code = st.session_state.selected_job_code
 
     col_back, _ = st.columns([1, 5])
